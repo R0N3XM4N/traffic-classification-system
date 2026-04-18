@@ -1,41 +1,59 @@
-from scapy.all import sniff, IP, TCP, UDP, ICMP
+from ryu.base import app_manager
+from ryu.controller import ofp_event
+from ryu.controller.handler import MAIN_DISPATCHER, set_ev_cls
+from ryu.ofproto import ofproto_v1_3
+
+from ryu.lib.packet import packet
+from ryu.lib.packet import ethernet
+from ryu.lib.packet import ipv4
+from ryu.lib.packet import tcp
+from ryu.lib.packet import udp
+from ryu.lib.packet import icmp
+
 from collections import defaultdict
 
-# Dictionary to store protocol counts
-protocol_count = defaultdict(int)
 
-total_packets = 0
+class TrafficClassifier(app_manager.RyuApp):
+    OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
-def classify_packet(packet):
-    global total_packets
-    total_packets += 1
+    def __init__(self, *args, **kwargs):
+        super(TrafficClassifier, self).__init__(*args, **kwargs)
+        self.protocol_count = defaultdict(int)
+        self.total_packets = 0
 
-    if packet.haslayer(TCP):
-        protocol = "TCP"
-    elif packet.haslayer(UDP):
-        protocol = "UDP"
-    elif packet.haslayer(ICMP):
-        protocol = "ICMP"
-    else:
+    @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
+    def packet_in_handler(self, ev):
+        msg = ev.msg
+        datapath = msg.datapath
+
+        pkt = packet.Packet(msg.data)
+
+        self.total_packets += 1
         protocol = "OTHER"
 
-    protocol_count[protocol] += 1
+        ip_pkt = pkt.get_protocol(ipv4.ipv4)
 
-    print(f"Packet #{total_packets}: {protocol}")
+        if ip_pkt:
+            if pkt.get_protocol(tcp.tcp):
+                protocol = "TCP"
+            elif pkt.get_protocol(udp.udp):
+                protocol = "UDP"
+            elif pkt.get_protocol(icmp.icmp):
+                protocol = "ICMP"
 
-def show_statistics():
-    print("\n===== TRAFFIC ANALYSIS =====")
+        self.protocol_count[protocol] += 1
 
-    for protocol, count in protocol_count.items():
-        percentage = (count / total_packets) * 100
-        print(f"{protocol}: {count} packets ({percentage:.2f}%)")
+        self.logger.info(f"Packet #{self.total_packets}: {protocol}")
 
-    print(f"\nTotal Packets Captured: {total_packets}")
+        # Show stats every 10 packets
+        if self.total_packets % 10 == 0:
+            self.show_statistics()
 
-print("Starting Traffic Classification...\n")
+    def show_statistics(self):
+        self.logger.info("\n===== TRAFFIC ANALYSIS =====")
 
-# Capture 50 packets
-sniff(prn=classify_packet, count=50)
+        for proto, count in self.protocol_count.items():
+            percentage = (count / self.total_packets) * 100
+            self.logger.info(f"{proto}: {count} packets ({percentage:.2f}%)")
 
-# Show final analysis
-show_statistics()
+        self.logger.info(f"Total Packets: {self.total_packets}\n")
