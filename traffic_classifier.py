@@ -88,3 +88,27 @@ class TrafficClassifier:
         """Clear all counters (useful between test cases or operator resets)."""
         self.protocol_count = defaultdict(int)
         self.total_packets = 0
+
+
+if __name__ == "__main__":
+    import random
+
+    try:
+        n = int(input("Enter number of packets to send: "))
+    except ValueError:
+        print("Please enter a valid integer.")
+        exit(1)
+
+    clf = TrafficClassifier()
+    protocols = ["TCP", "UDP", "ICMP", "OTHER"]
+
+    for _ in range(n):
+        proto = random.choice(protocols)
+        clf.classify_and_record(
+            has_ip   = proto != "OTHER",
+            has_tcp  = proto == "TCP",
+            has_udp  = proto == "UDP",
+            has_icmp = proto == "ICMP",
+        )
+
+    print(clf.format_statistics())
